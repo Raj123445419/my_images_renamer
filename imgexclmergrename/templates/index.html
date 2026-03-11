@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Excel & Image Renamer</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+
+<style>
+body{
+    font-family:Arial;
+    background:#f5f5f5;
+    padding:20px;
+}
+h2{
+    text-align:center;
+    margin-bottom:30px;
+}
+.card-box{
+    background:#fff;
+    border-radius:8px;
+    padding:20px;
+    margin-bottom:25px;
+    box-shadow:0 2px 8px rgba(0,0,0,0.1);
+}
+.img-preview{
+    width:150px;
+    height:150px;
+    object-fit:cover;
+    border-radius:6px;
+    border:1px solid #ddd;
+    margin-bottom:5px;
+}
+.image-name{
+    font-size:14px;
+    word-break:break-word;
+}
+#image-container,#renamed-container,#unmatched-container{
+    display:grid;
+    grid-template-columns:repeat(5,1fr);
+    gap:15px;
+}
+#alertBox{
+    position: fixed;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    width: 70%;
+}
+
+/* Custom Alert Styles */
+.alert-success{
+    background-color:#d4edda;
+    color:#155724;
+    font-family:Arial;
+    font-weight:bold;
+    padding:20px 30px;
+    border-radius:8px;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:16px;
+}
+.alert-danger{
+    background-color:#f8d7da;
+    color:#721c24;
+    font-family:Georgia;
+    font-weight:bold;
+    padding:20px 30px;
+    border-radius:8px;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:16px;
+}
+.alert-warning{
+    background-color:#fff3cd;
+    color:#856404;
+    font-family:Courier;
+    font-weight:bold;
+    padding:20px 30px;
+    border-radius:8px;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:16px;
+}
+.alert-info{
+    background-color:#d1ecf1;
+    color:#0c5460;
+    font-family:Verdana;
+    font-weight:bold;
+    padding:20px 30px;
+    border-radius:8px;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:16px;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+<h2>Excel & Image Renamer Tool</h2>
+
+<div id="alertBox"></div>
+
+<!-- STEP 1 -->
+<div class="card-box">
+<h4>Step 1: Upload Excel</h4>
+<input type="file" id="excelFile" class="form-control mb-2" accept=".xlsx,.xls">
+<button class="btn btn-success mb-2" onclick="uploadExcel()">Upload Excel</button>
+<div id="excel_info"></div>
+</div>
+
+<!-- STEP 2 -->
+<div class="card-box">
+<h4>Step 2: Upload Images</h4>
+<input type="file" id="imageFiles" class="form-control mb-2" accept="image/*" multiple>
+<button class="btn btn-primary mb-2" onclick="uploadImages()">Upload Images</button>
+<h6>Total Images: <span id="total_images">0</span></h6>
+<div id="image-container"></div>
+</div>
+
+<!-- STEP 3 -->
+<div class="card-box">
+<h4>Step 3: Comparison & Rename</h4>
+<button class="btn btn-info mb-3 text-white" onclick="compareFiles()">Comparison</button>
+<div id="comparisonTable"></div>
+
+<h5 class="mt-4">Not Matched Images</h5>
+<div id="unmatched-container"></div>
+
+<div class="mt-3 text-center">
+<button class="btn btn-success me-2" onclick="renameImages()">Rename Files</button>
+<button class="btn btn-warning text-white" onclick="downloadFolder()">Download Folder</button>
+</div>
+
+<h5 class="mt-4">Renamed Images Preview</h5>
+<div id="renamed-container"></div>
+</div>
+</div>
+
+<script>
+let excelNames=[]
+let images=[]
+let matched=[]
+let unmatchedImages=[]
+let renamedImages=[]
+let visibleImages=12
+let visibleMatched=12
+let visibleUnmatched=12
+let visibleRenamed=12
+
+/* ALERT FUNCTION */
+function showAlert(message,type="warning"){
+    const alertBox = document.getElementById("alertBox")
+    alertBox.innerHTML = `<div class="alert alert-${type}" onclick="this.remove()">${message}</div>`
+    setTimeout(()=>{ if(alertBox.firstChild) alertBox.innerHTML="" },3000)
+}
+
+/* STEP 1: UPLOAD EXCEL */
+function uploadExcel(){
+    const file=document.getElementById("excelFile").files[0]
+    if(!file){ showAlert("Please select an Excel file before uploading.","danger"); return }
+    const reader=new FileReader()
+    reader.onload=function(e){
+        const data=new Uint8Array(e.target.result)
+        const workbook=XLSX.read(data,{type:'array'})
+        const sheet=workbook.Sheets[workbook.SheetNames[0]]
+        const json=XLSX.utils.sheet_to_json(sheet,{header:1})
+        excelNames=json.flat().filter(x=>x).map(x=>x.toString().toLowerCase())
+        document.getElementById("excel_info").innerHTML=`<div class="alert alert-success">Excel file "${file.name}" uploaded successfully. Total items: ${excelNames.length}</div>`
+    }
+    reader.readAsArrayBuffer(file)
+}
+
+/* STEP 2: UPLOAD IMAGES */
+function uploadImages(){
+    const fileInput=document.getElementById("imageFiles")
+    if(fileInput.files.length===0){ showAlert("Please select at least one image to upload.","danger"); return }
+    images=[...fileInput.files]
+    document.getElementById("total_images").innerText=images.length
+    visibleImages=12
+    renderImages()
+}
+function renderImages(){
+    const container=document.getElementById("image-container")
+    container.innerHTML=""
+    images.slice(0,visibleImages).forEach(img=>{
+        const url=URL.createObjectURL(img)
+        container.innerHTML+=`<div class="text-center"><img src="${url}" class="img-preview"><div class="image-name">${img.name}</div></div>`
+    })
+    if(images.length>visibleImages){
+        container.innerHTML+=`<div style="grid-column:1/-1;text-align:center"><button class="btn btn-secondary" onclick="loadMoreImages()">See More Images</button></div>`
+    }
+}
+function loadMoreImages(){ visibleImages+=40; renderImages() }
+
+/* SIMILARITY FUNCTION */
+function similarity(a,b){
+    a=a.toLowerCase(); b=b.toLowerCase()
+    if(a.includes(b)||b.includes(a)) return 0.9
+    let longer=Math.max(a.length,b.length)
+    let same=0
+    for(let i=0;i<Math.min(a.length,b.length);i++){ if(a[i]==b[i]) same++ }
+    return same/longer
+}
+
+/* STEP 3: COMPARISON */
+function compareFiles(){
+    if(excelNames.length===0 || images.length===0){
+        showAlert("Please upload both Excel file and images before proceeding.","danger"); 
+        return 
+    }
+
+    matched=[]
+    unmatchedImages=[]
+
+    images.forEach(img=>{
+        let name=img.name.replace(/\.[^/.]+$/,"")
+        let bestMatch=null
+        let bestScore=0
+        excelNames.forEach(ex=>{
+            let score=similarity(name,ex)
+            if(score>bestScore){ bestScore=score; bestMatch=ex }
+        })
+        if(bestScore>=0.7){ matched.push({excel:bestMatch,img:img,score:Math.round(bestScore*100)}) }
+        else{ unmatchedImages.push(img) }
+    })
+
+    visibleMatched=12
+    visibleUnmatched=12
+    renderComparison()
+    renderUnmatched()
+
+    if(matched.length===0){ showAlert("No images matched any Excel names.","danger") }
+}
+
+/* MATCHED TABLE */
+function renderComparison(){
+    const container=document.getElementById("comparisonTable")
+    const show=matched.slice(0,visibleMatched)
+    let table=`<table class="table table-bordered"><thead><tr><th>Excel Name</th><th>Image</th><th>Match %</th></tr></thead><tbody>`
+    show.forEach(item=>{
+        const url=URL.createObjectURL(item.img)
+        table+=`<tr><td>${item.excel}</td><td><img src="${url}" class="img-preview"><div>${item.img.name}</div></td><td>${item.score}%</td></tr>`
+    })
+    table+=`</tbody></table>`
+    if(matched.length>visibleMatched){ table+=`<div class="text-center"><button class="btn btn-secondary" onclick="loadMoreMatched()">See More</button></div>` }
+    container.innerHTML=table
+}
+function loadMoreMatched(){ visibleMatched+=40; renderComparison() }
+
+/* UNMATCHED IMAGES */
+function renderUnmatched(){
+    const container=document.getElementById("unmatched-container")
+    container.innerHTML=""
+    unmatchedImages.slice(0,visibleUnmatched).forEach(img=>{
+        const url=URL.createObjectURL(img)
+        container.innerHTML+=`<div class="text-center"><img src="${url}" class="img-preview"><div class="image-name">${img.name}</div></div>`
+    })
+    if(unmatchedImages.length>visibleUnmatched){
+        container.innerHTML+=`<div style="grid-column:1/-1;text-align:center"><button class="btn btn-secondary" onclick="loadMoreUnmatched()">See More</button></div>`
+    }
+}
+function loadMoreUnmatched(){ visibleUnmatched+=40; renderUnmatched() }
+
+/* RENAME */
+function renameImages(){
+    if(excelNames.length===0 || images.length===0){
+        showAlert("Please upload both Excel file and images before proceeding.","danger"); 
+        return
+    }
+    if(matched.length===0){
+        showAlert("No matched images available for renaming.","danger"); 
+        return
+    }
+
+    renamedImages=[]
+    matched.forEach(item=>{
+        let ext=item.img.name.split(".").pop()
+        let newName=item.excel+"."+ext
+        renamedImages.push({file:item.img,name:newName})
+    })
+    visibleRenamed=12
+    renderRenamed()
+    showAlert("All matched images have been renamed successfully.","success")
+}
+function renderRenamed(){
+    const container=document.getElementById("renamed-container")
+    container.innerHTML=""
+    renamedImages.slice(0,visibleRenamed).forEach(item=>{
+        const url=URL.createObjectURL(item.file)
+        container.innerHTML+=`<div class="text-center"><img src="${url}" class="img-preview"><div class="image-name">${item.name}</div></div>`
+    })
+    if(renamedImages.length>visibleRenamed){
+        container.innerHTML+=`<div style="grid-column:1/-1;text-align:center"><button class="btn btn-secondary" onclick="loadMoreRenamed()">See More</button></div>`
+    }
+}
+function loadMoreRenamed(){ visibleRenamed+=40; renderRenamed() }
+
+/* DOWNLOAD ZIP */
+function downloadFolder(){
+    if(excelNames.length===0 || images.length===0){
+        showAlert("Please upload both Excel file and images before proceeding.","danger"); 
+        return
+    }
+    if(matched.length===0){
+        showAlert("No matched images available for download.","danger"); 
+        return
+    }
+
+    const zip=new JSZip()
+    renamedImages.forEach(item=>{ zip.file(item.name,item.file) })
+    zip.generateAsync({type:"blob"}).then(content=>{
+        const a=document.createElement("a")
+        a.href=URL.createObjectURL(content)
+        a.download="renamed_images.zip"
+        a.click()
+    })
+}
+</script>
+</body>
+</html>
